@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Кинотеатр ВКонтакте</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #1e1e1e;
+            color: white;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 */
+            height: 0;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .video-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background: #cccccc;
+        }
+        input {
+            padding: 10px;
+            flex-grow: 1;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        .chat {
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            background: #2d2d2d;
+            margin-bottom: 20px;
+        }
+        .user-list {
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            background: #2d2d2d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Совместный просмотр ВКонтакте</h1>
+        
+        <!-- Поле для ввода ссылки на видео -->
+        <div class="controls">
+            <input type="text" id="videoUrl" placeholder="Вставьте ссылку на видео из ВК">
+            <button id="loadVideo">Загрузить</button>
+        </div>
+
+        <!-- Контейнер для видео -->
+        <div class="video-container">
+            <iframe id="vkVideo" src="" allowfullscreen></iframe>
+        </div>
+
+        <!-- Кнопки управления -->
+        <div class="controls">
+            <button id="playPause">Пауза</button>
+            <button id="sync">Синхронизировать</button>
+            <button id="micToggle">🎤 Вкл/Выкл микрофон</button>
+        </div>
+
+        <!-- Чат и список пользователей -->
+        <div class="chat" id="chat">
+            <p>Добро пожаловать! Подключите микрофон.</p>
+        </div>
+
+        <div class="user-list">
+            <h3>Участники:</h3>
+            <ul id="users">
+                <li>Вы</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Элементы DOM
+        const videoUrlInput = document.getElementById('videoUrl');
+        const loadVideoBtn = document.getElementById('loadVideo');
+        const vkVideo = document.getElementById('vkVideo');
+        const playPauseBtn = document.getElementById('playPause');
+        const syncBtn = document.getElementById('sync');
+        const micToggleBtn = document.getElementById('micToggle');
+        const chat = document.getElementById('chat');
+        const usersList = document.getElementById('users');
+
+        // Состояние
+        let isPlaying = true;
+        let localStream = null;
+        let peerConnections = {}; // Для WebRTC (упрощённо)
+
+        // Загрузка видео из ВК (упрощённо)
+        loadVideoBtn.addEventListener('click', () => {
+            const url = videoUrlInput.value.trim();
+            if (!url) return alert("Введите ссылку!");
+            
+            // Простая проверка URL (можно улучшить)
+            if (url.includes('vk.com') || url.includes('vk.ru')) {
+                vkVideo.src = `https://vk.com/video_ext.php?${url.split('?')[1] || ''}`;
+                addMessage(`Видео загружено: ${url}`);
+            } else {
+                alert("Это не ссылка ВКонтакте!");
+            }
+        });
+
+        // Управление паузой (синхронизация будет через WebSockets в реальном приложении)
+        playPauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            playPauseBtn.textContent = isPlaying ? 'Пауза' : 'Играть';
+            // Здесь должен быть вызов API для синхронизации с другими пользователями
+            addMessage(`Видео ${isPlaying ? 'возобновлено' : 'на паузе'}`);
+        });
+
+        // Синхронизация (заглушка)
+        syncBtn.addEventListener('click', () => {
+            addMessage("Синхронизация...");
+            // В реальности здесь будет запрос к серверу для синхронизации времени
+        });
+
+        // Включение/выключение микрофона (WebRTC)
+        micToggleBtn.addEventListener('click', async () => {
+            try {
+                if (!localStream) {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    addMessage("Микрофон включён");
+                    micToggleBtn.textContent = "🎤 Выключить";
+                    // Здесь должен быть код для установки WebRTC соединения
+                } else {
+                    localStream.getTracks().forEach(track => track.stop());
+                    localStream = null;
+                    addMessage("Микрофон выключен");
+                    micToggleBtn.textContent = "🎤 Включить";
+                }
+            } catch (err) {
+                addMessage("Ошибка доступа к микрофону: " + err.message);
+            }
+        });
+
+        // Добавление сообщения в чат
+        function addMessage(text) {
+            const message = document.createElement('p');
+            message.textContent = text;
+            chat.appendChild(message);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // Заглушка для имитации участников (в реальности - WebSockets)
+        setTimeout(() => {
+            const user = document.createElement('li');
+            user.textContent = "Другой пользователь";
+            usersList.appendChild(user);
+            addMessage("Кто-то присоединился к просмотру!");
+        }, 3000);
+    </script>
+</body>
+</html>
