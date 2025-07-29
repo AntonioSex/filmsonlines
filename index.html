@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Кинотеатр ВКонтакте</title>
+    <title>Кинотеатр ВКонтакте (с API)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -75,12 +75,28 @@
             color: #ff5555;
             margin-top: 5px;
         }
+        .auth-panel {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Совместный просмотр ВКонтакте</h1>
+        <h1>Совместный просмотр ВКонтакте (с API)</h1>
         
+        <!-- Панель авторизации -->
+        <div class="auth-panel" id="authPanel">
+            <p>Для доступа к приватным видео требуется авторизация ВКонтакте:</p>
+            <button id="loginBtn">Войти через ВК</button>
+            <div id="userInfo" style="display: none; margin-top: 10px;">
+                <p>Вы вошли как: <span id="userName"></span></p>
+                <button id="logoutBtn">Выйти</button>
+            </div>
+        </div>
+
         <!-- Поле для ввода ссылки на видео -->
         <div class="controls">
             <input type="text" id="videoUrl" placeholder="Вставьте ссылку на видео из ВК (vk.com или vkvideo.ru)">
@@ -113,6 +129,8 @@
         </div>
     </div>
 
+    <!-- Подключение VK API -->
+    <script src="https://vk.com/js/api/openapi.js?169"></script>
     <script>
         // Элементы DOM
         const videoUrlInput = document.getElementById('videoUrl');
@@ -124,68 +142,115 @@
         const chat = document.getElementById('chat');
         const usersList = document.getElementById('users');
         const errorDiv = document.getElementById('error');
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const userInfo = document.getElementById('userInfo');
+        const userName = document.getElementById('userName');
 
         // Состояние
         let isPlaying = true;
         let localStream = null;
         let peerConnections = {};
+        let vkAuth = false;
 
-        // Функция для преобразования ссылки в корректный iframe-формат ВК
-        function getVKEmbedUrl(url) {
+        // Инициализация VK API
+        VK.init({
+            apiId: 1234567 // Замените на ваш app_id (https://dev.vk.com/apps)
+        });
+
+        // Авторизация ВК
+        loginBtn.addEventListener('click', () => {
+            VK.Auth.login((response) => {
+                if (response.session) {
+                    vkAuth = true;
+                    loginBtn.style.display = 'none';
+                    userInfo.style.display = 'block';
+                    VK.Api.call('users.get', { fields: 'first_name,last_name' }, (r) => {
+                        if (r.response) {
+                            const user = r.response[0];
+                            userName.textContent = `${user.first_name} ${user.last_name}`;
+                        }
+                    });
+                    addMessage("Авторизация прошла успешно!");
+                } else {
+                    showError("Ошибка авторизации");
+                }
+            }, 8192); // Права доступа: video
+        });
+
+        // Выход
+        logoutBtn.addEventListener('click', () => {
+            VK.Auth.logout(() => {
+                vkAuth = false;
+                loginBtn.style.display = 'block';
+                userInfo.style.display = 'none';
+                addMessage("Вы вышли из аккаунта");
+            });
+        });
+
+        // Функция для получения embed-ссылки через API ВК
+        async function getVKEmbedUrl(url) {
             try {
-                // Если ссылка vk.com
+                // Извлекаем video_id из URL
+                let videoId;
                 if (url.includes('vk.com/video')) {
-                    const videoIdMatch = url.match(/video(-?\d+_\d+)/);
-                    if (videoIdMatch) {
-                        return `https://vk.com/video_ext.php?oid=${videoIdMatch[1].split('_')[0]}&id=${videoIdMatch[1].split('_')[1]}`;
-                    }
+                    videoId = url.match(/video(-?\d+_\d+)/)[1];
+                } else if (url.includes('vkvideo.ru')) {
+                    videoId = url.match(/video-(\d+_\d+)/)[1];
+                } else {
+                    return null;
                 }
-                // Если ссылка vkvideo.ru
-                else if (url.includes('vkvideo.ru')) {
-                    const videoIdMatch = url.match(/video-(\d+_\d+)/);
-                    if (videoIdMatch) {
-                        const [ownerId, videoId] = videoIdMatch[1].split('_');
-                        return `https://vk.com/video_ext.php?oid=${ownerId}&id=${videoId}`;
-                    }
-                }
-                return null;
+
+                // Запрос к API ВК
+                return new Promise((resolve) => {
+                    VK.Api.call('video.get', { 
+                        videos: videoId,
+                        extended: 0,
+                        v: '5.131' // Версия API
+                    }, (response) => {
+                        if (response.response) {
+                            const video = response.response.items[0];
+                            if (video.player) {
+                                resolve(video.player);
+                            } else {
+                                showError("Видео недоступно для встраивания");
+                                resolve(null);
+                            }
+                        } else {
+                            showError("Ошибка API: " + response.error.error_msg);
+                            resolve(null);
+                        }
+                    });
+                });
             } catch (e) {
+                showError("Ошибка обработки ссылки");
                 return null;
             }
         }
 
-        // Загрузка видео из ВК
-        loadVideoBtn.addEventListener('click', () => {
+        // Загрузка видео из ВК через API
+        loadVideoBtn.addEventListener('click', async () => {
             const url = videoUrlInput.value.trim();
             if (!url) {
                 showError("Введите ссылку!");
                 return;
             }
 
-            const embedUrl = getVKEmbedUrl(url);
-            if (!embedUrl) {
-                showError("Неправильная ссылка! Примеры: vk.com/video-123_456 или vkvideo.ru/.../video-123_456");
-                return;
-            }
+            const embedUrl = await getVKEmbedUrl(url);
+            if (!embedUrl) return;
 
             vkVideo.src = embedUrl;
             addMessage(`Видео загружено: ${url}`);
             errorDiv.textContent = "";
         });
 
-        // Управление паузой
+        // Остальные функции (управление паузой, микрофоном и т.д.) остаются без изменений
         playPauseBtn.addEventListener('click', () => {
             isPlaying = !isPlaying;
             playPauseBtn.textContent = isPlaying ? 'Пауза' : 'Играть';
             addMessage(`Видео ${isPlaying ? 'возобновлено' : 'на паузе'}`);
         });
 
-        // Синхронизация (заглушка)
-        syncBtn.addEventListener('click', () => {
-            addMessage("Синхронизация...");
-        });
-
-        // Включение/выключение микрофона (WebRTC)
         micToggleBtn.addEventListener('click', async () => {
             try {
                 if (!localStream) {
@@ -203,7 +268,6 @@
             }
         });
 
-        // Добавление сообщения в чат
         function addMessage(text) {
             const message = document.createElement('p');
             message.textContent = text;
@@ -211,7 +275,6 @@
             chat.scrollTop = chat.scrollHeight;
         }
 
-        // Показать ошибку
         function showError(text) {
             errorDiv.textContent = text;
         }
