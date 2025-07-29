@@ -71,6 +71,10 @@
             padding: 10px;
             background: #2d2d2d;
         }
+        .error {
+            color: #ff5555;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -79,9 +83,10 @@
         
         <!-- Поле для ввода ссылки на видео -->
         <div class="controls">
-            <input type="text" id="videoUrl" placeholder="Вставьте ссылку на видео из ВК">
+            <input type="text" id="videoUrl" placeholder="Вставьте ссылку на видео из ВК (vk.com или vkvideo.ru)">
             <button id="loadVideo">Загрузить</button>
         </div>
+        <div id="error" class="error"></div>
 
         <!-- Контейнер для видео -->
         <div class="video-container">
@@ -118,38 +123,66 @@
         const micToggleBtn = document.getElementById('micToggle');
         const chat = document.getElementById('chat');
         const usersList = document.getElementById('users');
+        const errorDiv = document.getElementById('error');
 
         // Состояние
         let isPlaying = true;
         let localStream = null;
-        let peerConnections = {}; // Для WebRTC (упрощённо)
+        let peerConnections = {};
 
-        // Загрузка видео из ВК (упрощённо)
+        // Функция для преобразования ссылки в корректный iframe-формат ВК
+        function getVKEmbedUrl(url) {
+            try {
+                // Если ссылка vk.com
+                if (url.includes('vk.com/video')) {
+                    const videoIdMatch = url.match(/video(-?\d+_\d+)/);
+                    if (videoIdMatch) {
+                        return `https://vk.com/video_ext.php?oid=${videoIdMatch[1].split('_')[0]}&id=${videoIdMatch[1].split('_')[1]}`;
+                    }
+                }
+                // Если ссылка vkvideo.ru
+                else if (url.includes('vkvideo.ru')) {
+                    const videoIdMatch = url.match(/video-(\d+_\d+)/);
+                    if (videoIdMatch) {
+                        const [ownerId, videoId] = videoIdMatch[1].split('_');
+                        return `https://vk.com/video_ext.php?oid=${ownerId}&id=${videoId}`;
+                    }
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Загрузка видео из ВК
         loadVideoBtn.addEventListener('click', () => {
             const url = videoUrlInput.value.trim();
-            if (!url) return alert("Введите ссылку!");
-            
-            // Простая проверка URL (можно улучшить)
-            if (url.includes('vk.com') || url.includes('vk.ru')) {
-                vkVideo.src = `https://vk.com/video_ext.php?${url.split('?')[1] || ''}`;
-                addMessage(`Видео загружено: ${url}`);
-            } else {
-                alert("Это не ссылка ВКонтакте!");
+            if (!url) {
+                showError("Введите ссылку!");
+                return;
             }
+
+            const embedUrl = getVKEmbedUrl(url);
+            if (!embedUrl) {
+                showError("Неправильная ссылка! Примеры: vk.com/video-123_456 или vkvideo.ru/.../video-123_456");
+                return;
+            }
+
+            vkVideo.src = embedUrl;
+            addMessage(`Видео загружено: ${url}`);
+            errorDiv.textContent = "";
         });
 
-        // Управление паузой (синхронизация будет через WebSockets в реальном приложении)
+        // Управление паузой
         playPauseBtn.addEventListener('click', () => {
             isPlaying = !isPlaying;
             playPauseBtn.textContent = isPlaying ? 'Пауза' : 'Играть';
-            // Здесь должен быть вызов API для синхронизации с другими пользователями
             addMessage(`Видео ${isPlaying ? 'возобновлено' : 'на паузе'}`);
         });
 
         // Синхронизация (заглушка)
         syncBtn.addEventListener('click', () => {
             addMessage("Синхронизация...");
-            // В реальности здесь будет запрос к серверу для синхронизации времени
         });
 
         // Включение/выключение микрофона (WebRTC)
@@ -159,7 +192,6 @@
                     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     addMessage("Микрофон включён");
                     micToggleBtn.textContent = "🎤 Выключить";
-                    // Здесь должен быть код для установки WebRTC соединения
                 } else {
                     localStream.getTracks().forEach(track => track.stop());
                     localStream = null;
@@ -179,7 +211,12 @@
             chat.scrollTop = chat.scrollHeight;
         }
 
-        // Заглушка для имитации участников (в реальности - WebSockets)
+        // Показать ошибку
+        function showError(text) {
+            errorDiv.textContent = text;
+        }
+
+        // Заглушка для имитации участников
         setTimeout(() => {
             const user = document.createElement('li');
             user.textContent = "Другой пользователь";
