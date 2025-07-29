@@ -101,6 +101,9 @@
         #userProfile {
             display: none;
         }
+        #vkid-floating-one-tap {
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
@@ -111,12 +114,6 @@
                 <img id="userAvatar" class="user-avatar" src="" alt="Аватар">
                 <span id="userName"></span>
             </div>
-        </div>
-        
-        <!-- Панель авторизации -->
-        <div class="auth-panel" id="authPanel">
-            <p>Для доступа к видео требуется авторизация ВКонтакте:</p>
-            <button id="loginBtn">Войти через ВК</button>
         </div>
 
         <!-- Поле для ввода ссылки на видео -->
@@ -140,7 +137,7 @@
 
         <!-- Чат и список пользователей -->
         <div class="chat" id="chat">
-            <p>Добро пожаловать! Войдите через ВК и загрузите видео.</p>
+            <p>Добро пожаловать! Авторизуйтесь для доступа к видео.</p>
         </div>
 
         <div class="user-list">
@@ -151,6 +148,8 @@
         </div>
     </div>
 
+    <!-- Подключение VK ID SDK -->
+    <script src="https://unpkg.com/@vkid/sdk@2.0.0/dist-sdk/umd/index.js"></script>
     <!-- Подключение VK API -->
     <script src="https://vk.com/js/api/openapi.js?169"></script>
     <script>
@@ -164,49 +163,73 @@
         const chat = document.getElementById('chat');
         const usersList = document.getElementById('users');
         const errorDiv = document.getElementById('error');
-        const loginBtn = document.getElementById('loginBtn');
         const userProfile = document.getElementById('userProfile');
         const userAvatar = document.getElementById('userAvatar');
         const userName = document.getElementById('userName');
-        const authPanel = document.getElementById('authPanel');
 
         // Состояние
         let isPlaying = true;
         let localStream = null;
+        let currentUser = null;
 
-        // Инициализация VK API
-        VK.init({
-            apiId: 53976555 // Ваш app_id
-        });
+        // Инициализация VK ID (OneTap)
+        if ('VKIDSDK' in window) {
+            const VKID = window.VKIDSDK;
 
-        // Авторизация ВК
-        loginBtn.addEventListener('click', () => {
-            VK.Auth.login((response) => {
-                if (response.session) {
-                    // Успешная авторизация
-                    authPanel.style.display = 'none';
-                    userProfile.style.display = 'flex';
-                    
-                    // Получаем данные пользователя
-                    VK.Api.call('users.get', { 
-                        fields: 'photo_50,first_name,last_name', 
-                        v: '5.131' 
-                    }, (r) => {
-                        if (r.response) {
-                            const user = r.response[0];
-                            userAvatar.src = user.photo_50;
-                            userName.textContent = `${user.first_name} ${user.last_name}`;
-                            addMessage(`Вы вошли как ${user.first_name} ${user.last_name}`);
-                        }
-                    });
-                } else {
-                    showError("Ошибка авторизации");
-                }
-            }, 8192); // Права доступа: video
-        });
+            VKID.Config.init({
+                app: 53976555, // Ваш app_id
+                redirectUrl: 'https://antoniosex.github.io/filmsonlines/',
+                responseMode: VKID.ConfigResponseMode.Callback,
+                source: VKID.ConfigSource.LOWCODE,
+                scope: 'video',
+            });
+
+            const floatingOneTap = new VKID.FloatingOneTap();
+
+            floatingOneTap.render({
+                appName: 'Кинотеатр ВК',
+                showAlternativeLogin: true
+            })
+            .on(VKID.WidgetEvents.ERROR, vkidOnError)
+            .on(VKID.FloatingOneTapInternalEvents.LOGIN_SUCCESS, function (payload) {
+                const code = payload.code;
+                const deviceId = payload.device_id;
+
+                VKID.Auth.exchangeCode(code, deviceId)
+                    .then(vkidOnSuccess)
+                    .catch(vkidOnError);
+            });
+        
+            function vkidOnSuccess(data) {
+                floatingOneTap.close();
+                currentUser = data.user;
+                
+                // Отображаем профиль пользователя
+                userProfile.style.display = 'flex';
+                userAvatar.src = currentUser.photo_100 || '';
+                userName.textContent = `${currentUser.first_name} ${currentUser.last_name}`;
+                
+                addMessage(`Вы вошли как ${currentUser.first_name} ${currentUser.last_name}`);
+                
+                // Инициализируем VK API с полученным токеном
+                VK.init({
+                    apiId: 53976355
+                });
+                VK.Auth.setAccessToken(data.access_token);
+            }
+        
+            function vkidOnError(error) {
+                addMessage("Ошибка авторизации: " + (error.error || error.message));
+            }
+        }
 
         // Загрузка видео
         loadVideoBtn.addEventListener('click', () => {
+            if (!currentUser) {
+                showError("Для загрузки видео требуется авторизация");
+                return;
+            }
+
             const url = videoUrlInput.value.trim();
             if (!url) {
                 showError("Введите ссылку на видео!");
